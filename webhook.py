@@ -231,7 +231,7 @@ def handle_message(event):
 
                     line_bot_api.reply_message(event.reply_token, [
                         TextSendMessage(text=message),
-                        TextSendMessage(text=detail["imageUrl"] or "https://via.placeholder.com/1024x1024?text=No+Image")
+                        TextSendMessage(text=url)
                     ])
                 else:
                     raise ValueError("ไม่พบ URL")
@@ -241,10 +241,18 @@ def handle_message(event):
                     TextSendMessage(text=f"❌ เกิดข้อผิดพลาด: {e}\nพิมพ์ 'menu' เพื่อเริ่มใหม่")
                 )
         else:
+            intro_message = (
+                "👋 สวัสดีครับ! ผมคือ LINE Bot สำหรับช่วยคุณเลือกสินค้าไอที 🖥️📱🎮\n\n"
+                "คุณสามารถดูสินค้าหมวดหมู่ต่าง ๆ ได้ เช่น:\n"
+                "• 💻 Notebook\n"
+                "• 📱 Smartphone\n"
+                "• 🎮 Gaming Gear\n\n"
+                "พิมพ์ 👉 'menu' เพื่อเริ่มต้นเลือกหมวดหมู่เลยครับ!"
+            )
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="❌ ไม่เข้าใจคำสั่ง กรุณาพิมพ์ 'menu' เพื่อเริ่มต้นใหม่")
-            )
+                TextSendMessage(text=intro_message)
+    )
 
 
 if __name__ == "__main__":
