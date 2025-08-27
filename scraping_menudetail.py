@@ -90,40 +90,40 @@ def scrape_product_detail(url: str) -> dict:
         return {"error": str(e)}
 
 
-# ---------------- START ----------------
+if __name__ == "__main__":
+    # ---------------- START ----------------
+    for csv_filename in csv_filenames:
+        category_name = Path(csv_filename).stem  # เช่น notebook
+        output_file = output_dir / f"{category_name}_details.json"
 
-for csv_filename in csv_filenames:
-    category_name = Path(csv_filename).stem  # เช่น notebook
-    output_file = output_dir / f"{category_name}_details.json"
+        print(f"\n📂 เริ่มดึงข้อมูลจาก: {csv_filename}")
+        all_results = []
 
-    print(f"\n📂 เริ่มดึงข้อมูลจาก: {csv_filename}")
-    all_results = []
+        # อ่านไฟล์ CSV
+        with open(csv_filename, newline='', encoding='utf-8-sig') as csvfile:
+            reader = csv.DictReader(csvfile)
+            rows = list(reader)
 
-    # อ่านไฟล์ CSV
-    with open(csv_filename, newline='', encoding='utf-8-sig') as csvfile:
-        reader = csv.DictReader(csvfile)
-        rows = list(reader)
+            # สุ่ม 10 รายการ (ถ้าน้อยกว่า 10 ก็ใช้ทั้งหมด)
+            # sample_size = min(10, len(rows))
+            # sampled_rows = random.sample(rows, sample_size)
 
-        # สุ่ม 10 รายการ (ถ้าน้อยกว่า 10 ก็ใช้ทั้งหมด)
-        # sample_size = min(10, len(rows))
-        # sampled_rows = random.sample(rows, sample_size)
+            for i, row in enumerate(rows, 1):
+                name = row.get('name', '').strip()
+                url = row.get('url', '').strip()
 
-        for i, row in enumerate(rows, 1):
-            name = row.get('name', '').strip()
-            url = row.get('url', '').strip()
+                # print(f'{i}. 📦 รุ่น: {name}')
+                # print(f'   🔗 ลิงก์: {url}')
 
-            # print(f'{i}. 📦 รุ่น: {name}')
-            # print(f'   🔗 ลิงก์: {url}')
+                detail = scrape_product_detail(url)
+                detail["source_name"] = name
+                detail["url"] = url
 
-            detail = scrape_product_detail(url)
-            detail["source_name"] = name
-            detail["url"] = url
+                all_results.append(detail)
+                print(f'   ✅ ดึงข้อมูลสำเร็จแล้ว ({len(detail.keys())} ฟิลด์)')
+                print('-' * 60)
 
-            all_results.append(detail)
-            print(f'   ✅ ดึงข้อมูลสำเร็จแล้ว ({len(detail.keys())} ฟิลด์)')
-            print('-' * 60)
-
-    # บันทึก JSON
-    with output_file.open("w", encoding="utf-8") as f:
-        json.dump(all_results, f, ensure_ascii=False, indent=2)
-    print(f"✅ บันทึกไฟล์เรียบร้อย: {output_file}")
+        # บันทึก JSON
+        with output_file.open("w", encoding="utf-8") as f:
+            json.dump(all_results, f, ensure_ascii=False, indent=2)
+        print(f"✅ บันทึกไฟล์เรียบร้อย: {output_file}")
