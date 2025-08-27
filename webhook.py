@@ -17,6 +17,8 @@ CHANNEL_ACCESS_TOKEN = 'o0rmXIz8Xk1QDlHDkPbgLglKWg+qXjzOPnJt/21VmAXGBYuXkFQKlIyt
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 
+user_context = {}
+
 # ---------------- Webhook ----------------
 @app.route("/", methods=['POST'])
 def callback():
@@ -30,24 +32,28 @@ def callback():
 
     return 'OK'
 
-def load_csv_items(csv_path, limit=10):
+def load_csv_items(csv_path, limit=10, keyword=None):
     items = []
     try:
         with open(csv_path, newline='', encoding='utf-8') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
+            reader = list(csv.DictReader(csvfile))
+            for i, row in enumerate(reader):
                 keys = list(row.keys())
-                name_key = keys[0]  # ควรเป็น 'name'
-                url_key = keys[1]   # ควรเป็น 'url'
+                name = row.get(keys[0], "").strip()
+                url = row.get(keys[1], "").strip()
 
-                name = row.get(name_key, "").strip()
-                url = row.get(url_key, "").strip()
+                if not name or not url:
+                    continue
 
-                if name and url:
-                    items.append({
-                        "name": name,
-                        "url": url
-                    })
+                # ถ้ามี keyword ให้กรองเฉพาะสินค้าที่ชื่อมีคำนั้น
+                if keyword and keyword.lower() not in name.lower():
+                    continue
+
+                items.append({
+                    "name": name,
+                    "url": url,
+                    "csv_index": i   # ✅ เก็บ index เดิมใน CSV
+                })
 
                 if len(items) >= limit:
                     break
@@ -56,6 +62,7 @@ def load_csv_items(csv_path, limit=10):
     except Exception as e:
         print(f"❌ Error reading CSV: {e}")
     return items
+
 
 def get_url_by_index(csv_path, index):
     try:
@@ -99,6 +106,57 @@ def generate_carousel_columns(items, category, image_map):
             )
         )
     return columns
+
+def reply_search_result(event, category, query, limit=10):
+    csv_map = {
+        "notebook": "bnn_links/notebook.csv",
+        "smartphone": "bnn_links/smartphone-and-accessories.csv",
+        "gaming gear": "bnn_links/gaming-gear.csv"
+    }
+    json_map = {
+        "notebook": "bnn_details_json\\notebook_details.json",
+        "smartphone": "bnn_details_json\smartphone-and-accessories_details.json",
+        "gaming gear": "bnn_details_json\gaming-gear_details.json"
+    }
+
+    csv_path = csv_map.get(category)
+    json_path = json_map.get(category)
+    if not csv_path:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ ยังไม่รองรับหมวดนี้"))
+        return
+
+    items = load_csv_items(csv_path, limit=limit, keyword=query)
+    if not items:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"ไม่พบสินค้าในหมวด {category} ที่ตรงกับ “{query}”")
+        )
+        return
+
+    image_map = load_product_images_from_json(json_path)
+    columns = []
+    for it in items:
+        img = image_map.get(it["name"], f"https://via.placeholder.com/1024x1024?text={category}")
+        columns.append(
+            CarouselColumn(
+                title=it["name"][:40],
+                text=f"{category.capitalize()} | ค้นหา: {query[:20]}",
+                thumbnail_image_url=img,
+                actions=[
+                    MessageAction(
+                        label="ดูรายละเอียด",
+                        text=f"{it['csv_index']}|{category}"  # ✅ index เดิมจาก CSV
+                    )
+                ]
+            )
+        )
+
+    message = TemplateSendMessage(
+        alt_text=f"ผลการค้นหา {category}: {query}",
+        template=CarouselTemplate(columns=columns)
+    )
+    line_bot_api.reply_message(event.reply_token, message)
+
 
 
 
@@ -144,6 +202,7 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, message)
     
     elif user_input == "notebook":
+        user_context[event.source.user_id] = {"last_category": "notebook"}
         items = load_csv_items("bnn_links/notebook.csv", limit=10)
         image_map = load_product_images_from_json("bnn_details_json\\notebook_details.json")
 
@@ -169,6 +228,7 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, message)
 
     elif user_input == "smartphone":
+        user_context[event.source.user_id] = {"last_category": "smartphone"}
         items = load_csv_items("bnn_links/smartphone-and-accessories.csv", limit=10)
         image_map = load_product_images_from_json("bnn_details_json\smartphone-and-accessories_details.json")
 
@@ -180,6 +240,7 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, message)
 
     elif user_input == "gaming gear":
+        user_context[event.source.user_id] = {"last_category": "gaming gear"}
         items = load_csv_items("bnn_links/gaming-gear.csv", limit=10)
         image_map = load_product_images_from_json("bnn_details_json\gaming-gear_details.json")
 
@@ -226,7 +287,8 @@ def handle_message(event):
                         f"🔢 SKU: {detail['sku']}\n"
                         f"💵 ราคา: {detail['selling_price']} (ปกติ {detail['srp_price']})\n"
                         f"🧾 การรับประกัน: {detail['warranty']}\n\n"
-                        f"{detail['description'][:300]}..."
+                        f"{detail['description'][:300]}...\n\n"
+                        f"ดูรายละเอียดเพิ่มเติมได้ตามลิงค์ที่แนบด้านล่างครับ"
                     )
 
                     line_bot_api.reply_message(event.reply_token, [
@@ -241,18 +303,42 @@ def handle_message(event):
                     TextSendMessage(text=f"❌ เกิดข้อผิดพลาด: {e}\nพิมพ์ 'menu' เพื่อเริ่มใหม่")
                 )
         else:
-            intro_message = (
-                "👋 สวัสดีครับ! ผมคือ LINE Bot สำหรับช่วยคุณเลือกสินค้าไอที 🖥️📱🎮\n\n"
-                "คุณสามารถดูสินค้าหมวดหมู่ต่าง ๆ ได้ เช่น:\n"
-                "• 💻 Notebook\n"
-                "• 📱 Smartphone\n"
-                "• 🎮 Gaming Gear\n\n"
-                "พิมพ์ 👉 'menu' เพื่อเริ่มต้นเลือกหมวดหมู่เลยครับ!"
-            )
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=intro_message)
-    )
+            # ดึงหมวดล่าสุดของ user (ถ้าไม่มีให้ default เป็น notebook)
+            last_cat = user_context.get(event.source.user_id, {}).get("last_category", "notebook")
+
+            # รองรับรูปแบบ "notebook acer", "smartphone samsung" เพื่อสลับหมวดแบบ inline
+            lowered = user_input.lower()
+            if lowered.startswith("notebook "):
+                last_cat = "notebook"
+                query = lowered.replace("notebook", "", 1).strip()
+                user_context[event.source.user_id] = {"last_category": last_cat}
+            elif lowered.startswith("smartphone "):
+                last_cat = "smartphone"
+                query = lowered.replace("smartphone", "", 1).strip()
+                user_context[event.source.user_id] = {"last_category": last_cat}
+            elif lowered.startswith("gaming "):  # เผื่อผู้ใช้พิมพ์ gaming, gaming gear ...
+                last_cat = "gaming gear"
+                query = lowered.replace("gaming", "", 1).replace("gear", "", 1).strip()
+                user_context[event.source.user_id] = {"last_category": last_cat}
+            else:
+                query = user_input  # ใช้ข้อความทั้งหมดเป็นคำค้นในหมวดล่าสุด
+
+            # ตรวจจับคำทักทายทั่วไป
+            greetings = ["สวัสดี", "hello", "hi", "ดีจ้า", "หวัดดี", "ดีครับ", "ดีค่ะ"]
+            if user_input.strip() in greetings:
+                greet_text = (
+                    "สวัสดีครับ 👋 ยินดีต้อนรับสู่ระบบแนะนำสินค้าไอที 💻📱🎮\n\n"
+                    "คุณสามารถพิมพ์ชื่อสินค้าเพื่อค้นหาได้ เช่น:\n"
+                    "- notebook acer\n"
+                    "- smartphone samsung\n"
+                    "- gaming gear logitech\n\n"
+                    "หรือพิมพ์ `menu` เพื่อดูหมวดหมู่ทั้งหมดครับ 😊"
+                )
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=greet_text))
+                return
+
+            # ตอบผลการค้นหาในหมวดล่าสุด
+            reply_search_result(event, last_cat, query, limit=10)
 
 
 if __name__ == "__main__":
