@@ -105,10 +105,10 @@ for csv_filename in csv_filenames:
         rows = list(reader)
 
         # สุ่ม 10 รายการ (ถ้าน้อยกว่า 10 ก็ใช้ทั้งหมด)
-        sample_size = min(10, len(rows))
-        sampled_rows = random.sample(rows, sample_size)
+        # sample_size = min(10, len(rows))
+        # sampled_rows = random.sample(rows, sample_size)
 
-        for i, row in enumerate(sampled_rows, 1):
+        for i, row in enumerate(rows, 1):
             name = row.get('name', '').strip()
             url = row.get('url', '').strip()
 
