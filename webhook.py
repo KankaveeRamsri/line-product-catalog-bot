@@ -57,6 +57,16 @@ def load_csv_items(csv_path, limit=10):
         print(f"❌ Error reading CSV: {e}")
     return items
 
+def get_url_by_index(csv_path, index):
+    try:
+        with open(csv_path, newline='', encoding='utf-8') as csvfile:
+            reader = list(csv.DictReader(csvfile))
+            if 0 <= index < len(reader):
+                return reader[index].get("url", "").strip()
+    except Exception as e:
+        print(f"❌ Error reading {csv_path}: {e}")
+    return None
+
 def load_product_images_from_json(json_path):
     """โหลด mapping จากชื่อสินค้า (source_name) → รูปภาพหลัก (imageUrl)"""
     image_map = {}
@@ -75,18 +85,29 @@ def load_product_images_from_json(json_path):
 
 def generate_carousel_columns(items, category, image_map):
     columns = []
-    for item in items:
+    for item_index, item in enumerate(items):  # ใช้ enumerate เพื่อได้ index
         name = item["name"]
         image = image_map.get(name, f"https://via.placeholder.com/1024x1024?text={category}")
         columns.append(
             CarouselColumn(
-                title=item["name"][:40],
+                title=name[:40],
                 text=f"{category} รุ่นใหม่ 🔍",
-                thumbnail_image_url= image,
-                actions=[MessageAction(label="ดูรายละเอียด", text=item["name"])]
+                thumbnail_image_url=image,
+                actions=[
+                    MessageAction(label="ดูรายละเอียด", text=f"{item_index}|{category}")
+                ]
             )
         )
     return columns
+
+
+
+csv_filenames = [
+    "bnn_links\\notebook.csv",
+    "bnn_links\smartphone-and-accessories.csv",
+    "bnn_links\gaming-gear.csv"
+]
+
 
 # ---------------- Handle Message ----------------
 @handler.add(MessageEvent, message=TextMessage)
@@ -162,7 +183,7 @@ def handle_message(event):
         items = load_csv_items("bnn_links/gaming-gear.csv", limit=10)
         image_map = load_product_images_from_json("bnn_details_json\gaming-gear_details.json")
 
-        columns = generate_carousel_columns(items, category="Gaming+Gear", image_map=image_map)
+        columns = generate_carousel_columns(items, category="Gaming gear", image_map=image_map)
         message = TemplateSendMessage(
             alt_text="รายการ Gaming Gear",
             template=CarouselTemplate(columns=columns)
@@ -170,10 +191,60 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, message)
 
     else:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="🔎 พิมพ์ว่า 'menu' เพื่อเริ่มต้นเลือกหมวดสินค้า")
-        )
+        # แยก user_input ออกเป็น index และ category
+        if '|' in user_input:
+            try:
+                index_str, category = user_input.split('|')
+                index = int(index_str)
+
+                # เลือก CSV path ตาม category
+                csv_map = {
+                    "notebook": "bnn_links/notebook.csv",
+                    "smartphone": "bnn_links/smartphone-and-accessories.csv",
+                    "gaming gear": "bnn_links/gaming-gear.csv"
+                }
+                csv_path = csv_map.get(category.lower())
+
+                if not csv_path:
+                    raise ValueError("ไม่รู้จักหมวดหมู่")
+
+                url = get_url_by_index(csv_path, index)
+                print("URL:", url)
+
+                if url:
+                    detail = scrape_product_detail(url)
+                    if "error" in detail:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text=f"⚠️ ดึงข้อมูลล้มเหลว: {detail['error']}")
+                        )
+                        return
+
+                    message = (
+                        f"📦 {detail['title']}\n"
+                        f"🛠️ แบรนด์: {detail['brand']}\n"
+                        f"🔢 SKU: {detail['sku']}\n"
+                        f"💵 ราคา: {detail['selling_price']} (ปกติ {detail['srp_price']})\n"
+                        f"🧾 การรับประกัน: {detail['warranty']}\n\n"
+                        f"{detail['description'][:300]}..."
+                    )
+
+                    line_bot_api.reply_message(event.reply_token, [
+                        TextSendMessage(text=message),
+                        TextSendMessage(text=detail["imageUrl"] or "https://via.placeholder.com/1024x1024?text=No+Image")
+                    ])
+                else:
+                    raise ValueError("ไม่พบ URL")
+            except Exception as e:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=f"❌ เกิดข้อผิดพลาด: {e}\nพิมพ์ 'menu' เพื่อเริ่มใหม่")
+                )
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❌ ไม่เข้าใจคำสั่ง กรุณาพิมพ์ 'menu' เพื่อเริ่มต้นใหม่")
+            )
 
 
 if __name__ == "__main__":
